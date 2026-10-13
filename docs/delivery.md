@@ -2,7 +2,7 @@
 
 ## Repository 放置方式
 
-內附 workflow 以這個 starter 為 repository root。現在的外層 workspace 不會自動執行巢狀 `.github/workflows`。獨立 repo：把 starter 內容推到新 repository 的 root，default branch 使用 `main`（其他名稱請修改 workflow 的 branch filter / publish condition）。本起手式不會替你 init、commit 或 push 到遠端。
+內附 workflow 以這個 starter 為 repository root。現在的外層 workspace 不會自動執行巢狀 `.github/workflows`。獨立 repo：把 starter 內容推到新 repository 的 root，default branch 使用 `master`（其他名稱請修改 workflow 的 branch filter / publish condition）。目前 repository 的 default branch 使用 master，workflow 已對齊。
 
 若保留於外層 monorepo：將 workflow 複製至外層 `.github/workflows/`，設定 `defaults.run.working-directory: Golang-with-Gin-ecommerce-API-starter-202610`，並把 setup-go 的 `go-version-file` / `cache-dependency-path` 加上該 prefix；checkout action 仍在 root。調整 SSH stdin 的 script path 時，注意它是相對 run working-directory。Dependabot 的 directory 也需加上 prefix。
 
@@ -10,9 +10,9 @@
 
 ```mermaid
 flowchart LR
-    PR[Pull request / main / dispatch] --> V[Format + import boundaries + vet + race tests + build]
+    PR[Pull request / master / dispatch] --> V[Format + import boundaries + vet + race tests + build]
     V --> S[lockfiles + shell syntax + HTTP smoke + Docker build]
-    S --> P{main and not PR?}
+    S --> P{master and not PR?}
     P -->|yes| GHCR[Publish commit image to GHCR]
     GHCR --> M{Manual dispatch deploy_demo?}
     M -->|yes| ENV[demo environment]
@@ -22,11 +22,11 @@ flowchart LR
     SW -->|failure| R[Restore previous container]
 ```
 
-CI 不讀部署 secrets。只有 main 的成功 workflow 會用 `GITHUB_TOKEN` 發佈 GHCR，image tag 為 commit SHA，部署使用 `RepoDigest` 的不可變 `sha256` reference。沒有 latest-tag 覆蓋後內容不明的問題。
+CI 不讀部署 secrets。只有 master 的成功 workflow 會用 `GITHUB_TOKEN` 發佈 GHCR，image tag 為 commit SHA，部署使用 `RepoDigest` 的不可變 `sha256` reference。沒有 latest-tag 覆蓋後內容不明的問題。
 
 CI 也用 stateful Docker stub 測 deploy 成功、候選健康失敗、新版啟動失敗、新版健康失敗與 rename 失敗後回滾。可本機執行 `make test-deploy`；Bash、`flock` 為需求，macOS 可在 Linux container 裡執行。
 
-Demo deploy 只在 main 的 **workflow_dispatch + deploy_demo=true** 執行，且依賴 verify / publish 成功。可選擇在 GitHub `demo` environment 設 reviewer；repo owner 決定是否啟用。即使沒有 host，CI 與 image publish 仍可運作。
+Demo deploy 只在 master 的 **workflow_dispatch + deploy_demo=true** 執行，且依賴 verify / publish 成功。可選擇在 GitHub `demo` environment 設 reviewer；repo owner 決定是否啟用。即使沒有 host，CI 與 image publish 仍可運作。
 
 ## GitHub 設定
 

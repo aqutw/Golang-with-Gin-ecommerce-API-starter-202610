@@ -30,6 +30,7 @@
 flowchart TB
     API[api module] --> COM[commerce module]
     API --> PF[platform module]
+    API --> ID[identity module: JWT / accounts / sessions]
     A[commerce application] --> D[commerce domain]
     A --> P[commerce ports]
     M[commerce SQLite / memory adapters] --> P

@@ -3,7 +3,7 @@ name: CI and demo delivery
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
     inputs:
       deploy_demo:
@@ -70,7 +70,7 @@ jobs:
 
   publish:
     needs: verify
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

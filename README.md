@@ -116,6 +116,8 @@ flowchart LR
     MEM[SQLite transaction adapter] -. implements .-> PORT
     ROOT[API composition root] --> HTTP
     ROOT --> MEM
+    HTTP --> AUTH[Identity: JWT / sessions]
+    ROOT --> AUTH
     ROOT --> PLATFORM[Config / HTTP middleware]
 ```
 
