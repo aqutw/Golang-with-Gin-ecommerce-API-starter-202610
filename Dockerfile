@@ -13,7 +13,7 @@ COPY apps apps
 WORKDIR /src/apps/api
 RUN go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api
 
-FROM alpine:3.23
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates && addgroup -g 10001 app && adduser -D -u 10001 -G app app && mkdir /data && chown app:app /data
 COPY --from=build /out/api /usr/local/bin/api
 USER 10001:10001
