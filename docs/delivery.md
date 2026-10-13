@@ -51,29 +51,31 @@ install -m 600 /dev/null /opt/ecommerce/demo.env
 `/opt/ecommerce/demo.env`：
 
 ```dotenv
-API_TOKEN=replace-with-a-long-random-demo-token
-API_SUBJECT=demo-customer
+JWT_SECRET=<base64-of-32-random-bytes>
+JWT_ISSUER=ecommerce-api
+JWT_AUDIENCE=ecommerce-clients
 ```
 
-env 留在 host，不進 Git、不經 Actions log。部署 script 強制 APP_ENV=demo / HTTP_ADDR=:8080，只在 host `127.0.0.1:8080` 提供服務，可經 SSH tunnel 或另外設定 TLS reverse proxy 連入。
+請用可信任的 secret 管理流程產生 base64 32-byte random JWT_SECRET，替換 placeholder。env 留在 host，不進 Git、不經 Actions log；同一環境部署時保留 key，才能維持 access JWT 有效。部署 script 強制 APP_ENV=demo / HTTP_ADDR=:8080，只在 host `127.0.0.1:8080` 提供服務，可經 SSH tunnel 或另外設定 TLS reverse proxy 連入。
 
 Script 先 pull image，在 `127.0.0.1:18080` 啟動候選 container，通過 image healthcheck 再停止舊版、啟動新版。若新版啟動或健康檢查失敗，會恢復前一個 container；舊版會留在 `ecommerce-api-previous` 直到下一次部署。切換有短暫停機，不是 zero-downtime deployment。
 
-正式 demo container 的 `/data` 掛載 `ecommerce-api-data` named volume，SQLite 與 WAL / SHM 隨 container 重建仍保留。候選 container 使用獨立 tmpfs，健康檢查不碰 live DB。部署 rollback 恢復程式版本並使用同一資料，不會回滾 schema 或資料；新增 migration 應維持前後版本相容，破壞性修改需要先規劃 DB backup / restore。此版本仍是 demo identity，自動 seed 只插入缺少 rows，不重設已售庫存。
+正式 demo container 的 `/data` 掛載 `ecommerce-api-data` named volume，SQLite 與 WAL / SHM 隨 container 重建仍保留。候選 container 使用獨立 tmpfs，健康檢查不碰 live DB。部署 rollback 恢復程式版本並使用同一資料，不會回滾 schema 或資料；新增 migration 應維持前後版本相容，破壞性修改需要先規劃 DB backup / restore。identity tables 也在同一 volume，帳號／session 不會重設；自動 seed 只插入缺少 rows，不重設已售庫存。
 
 Script 使用非 root container、read-only filesystem、drop capabilities、no-new-privileges、資源及 log 上限；不建立 Kubernetes 資源。候選執行中的 healthcheck 不建立訂單，不消耗庫存。
 
 ## 本機 Docker
 
 ```bash
+make init-env
 docker build -t ecommerce-api:local .
 docker run --rm -p 127.0.0.1:8080:8080 \
-  -e API_TOKEN=local-development-token-change-me \
+  --env-file .env -e APP_ENV=demo -e HTTP_ADDR=:8080 -e DB_PATH=/data/ecommerce.db \
   --mount type=volume,source=ecommerce-api-data,target=/data \
   ecommerce-api:local
 ```
 
-API_TOKEN 必須至少 16 字元；APP_ENV 預設 demo，DB_PATH 預設 `/data/ecommerce.db`。未掛 volume 時，移除 container 會移除其資料。若用 `.env` 配 `--env-file`，記得 override `HTTP_ADDR=:8080`，否則範例中的 `127.0.0.1` 會只綁 container loopback。
+JWT_SECRET 必須為 base64 編碼的 32–64 random bytes；APP_ENV 預設 demo，DB_PATH 預設 `/data/ecommerce.db`。未掛 volume 時，移除 container 會移除其資料。若用 `.env` 配 `--env-file`，記得 override `HTTP_ADDR=:8080`，否則範例中的 `127.0.0.1` 會只綁 container loopback。
 
 ## 驗證範圍
 

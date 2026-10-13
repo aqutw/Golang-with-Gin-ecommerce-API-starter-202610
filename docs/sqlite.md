@@ -1,6 +1,6 @@
 # SQLite 商品 seed 與持久化
 
-`make seed` 建立 `data/ecommerce.db`，執行 schema migration，再插入兩個商品與初始庫存。這個命令不需要 API_TOKEN，也不啟動 HTTP。API 啟動也會自動完成相同初始化。
+`make seed` 建立 `data/ecommerce.db`，執行 schema migration，再插入兩個商品與初始庫存。這個命令不需要 JWT_SECRET，也不啟動 HTTP。API 啟動也會自動完成相同初始化。
 
 | 商品 ID | 名稱 | 金額（USD cents） | 初始庫存 |
 |---|---|---:|---:|
@@ -20,6 +20,8 @@ go run ./apps/api/cmd/db -db ./data/custom.db seed
 ```
 
 seed SQL 位於 `modules/commerce/adapters/sqlite/seed.sql`，以 `ON CONFLICT DO NOTHING` 只補缺少 rows。重跑 migration / seed 不會重新補滿庫存，不會更新商品名稱、價格或 active 狀態，也不會刪除訂單。要補庫存或改價應另外加入明確的管理 use case；不要把 seed 當成補貨機制。
+
+identity 在同一個 DB file 使用 auth_users / auth_sessions / auth_refresh_tokens 與獨立 migration 表，詳見 [登入設計](authentication.md)。
 
 初始 schema 位於 `migrations/001_initial.sql`，含 products、inventory、orders、order_lines、checkout_receipts、outbox；`002_discount_strategies.sql` 新增 discount_rules 與訂單優惠 snapshot（詳見 [Discount strategies](discount-strategies.md)）；`schema_migrations` 追蹤已套用版本。Migration 與 seed 各自使用 atomic SQL transaction。已套用的 migration 不要修改，新增下一個 `NNN_description.sql`。目前是 demo 自動 migration，正式部署需要獨立 migration policy 與備份策略。
 

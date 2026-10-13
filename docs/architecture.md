@@ -18,11 +18,11 @@
 
 不建立包山包海的 `utils`、`common`、`base service`。冪等是 generic technique，但結帳的 payload 正規化、customer scope、receipt 與交易原子性是商務規則，故本例放在 checkout。新 API 的冪等規則不一定相同。
 
-## 三個 modules，不是三個 services
+## 四個 modules 與一個 API process
 
 `go.work` 提供跨 module 本機編輯；`apps/api/go.mod` 的相對 `replace` 保證 `GOWORK=off` 也能獨立 build / test。CI 刻意逐一測試每個 module，避免 workspace 掩蓋遺漏依賴。platform 沒有 third-party dependencies；commerce 的 SQLite driver 及 transitive dependencies 鎖在自己的 `go.sum`，僅 adapter 引用。
 
-目前按穩定性區分 module：platform、commerce、api。catalog / inventory / pricing / order 是 commerce 裡的 capability packages，沒有各自增加 `go.mod`。當某個能力有獨立版本、團隊或部署需求，再抽成 module。單純增加 `go.mod` 不等於可獨立部署，也不能消除跨服務交易問題。
+目前按責任區分 module：platform、commerce、identity、api。identity 管理通用身份與登入生命週期，與 commerce 沒有互相依賴。catalog / inventory / pricing / order 是 commerce 裡的 capability packages，沒有各自增加 `go.mod`。當某個能力有獨立版本、團隊或部署需求，再抽成 module。單純增加 `go.mod` 不等於可獨立部署，也不能消除跨服務交易問題。
 
 依賴方向：
 
@@ -37,7 +37,7 @@ flowchart TB
     P --> D
 ```
 
-`scripts/check-boundaries.sh` 會檢查 transitive imports：commerce / platform 不依賴彼此或 api，不引用 Gin；domain 不引用 application / ports / adapters；application 不引用 concrete adapters。HTTP 的 tests 可以組裝 memory adapter，application tests 也可使用 adapter 測交易契約。
+`scripts/check-boundaries.sh` 會檢查 transitive imports：commerce / identity / platform 不依賴彼此或 api，不引用 Gin；domain 不引用 application / ports / adapters；application 不引用 concrete adapters。HTTP 的 tests 可以組裝 memory adapter，application tests 也可使用 adapter 測交易契約。
 
 ## 結帳的交易邊界
 
@@ -90,4 +90,4 @@ sequenceDiagram
 
 Discount rounding、滿額運費、tax、會員資格、promotion eligibility 都放在明確命名的 domain policy；跨 policy 的順序由 application 決定。跨服務後才使用 saga / compensation；目前同一 DB / process 用 local transaction 即可。
 
-Identity adapter 應把已驗證 JWT / session 轉成 subject，customer ID 不能來自 request body。demo Bearer middleware 已示範這個邊界，但僅對應一個固定 customer。Quote 是試算，不承諾庫存或鎖價；checkout 永遠重新讀 server-side price。
+Identity adapter 應把已驗證 JWT / session 轉成 subject，customer ID 不能來自 request body。目前 identity module 使用 JWT + rotating refresh token；middleware 驗證 JWT 與 DB session 後將 user ID 提供給 checkout，沒有固定 customer 或可自行指定的 customer ID。Quote 是試算，不承諾庫存或鎖價；checkout 永遠重新讀 server-side price。

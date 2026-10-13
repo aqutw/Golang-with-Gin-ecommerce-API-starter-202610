@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"example.com/ecommerce/commerce/adapters/sqlite"
+	identitysqlite "example.com/ecommerce/identity/adapters/sqlite"
 )
 
 func main() {
@@ -36,6 +37,14 @@ func run() error {
 	}
 	defer store.Close()
 	if err := store.Migrate(ctx); err != nil {
+		return err
+	}
+	identityStore, err := identitysqlite.Open(ctx, *path)
+	if err != nil {
+		return err
+	}
+	defer identityStore.Close()
+	if err := identityStore.Migrate(ctx); err != nil {
 		return err
 	}
 	if flag.Arg(0) == "seed" {

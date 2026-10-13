@@ -1,6 +1,10 @@
 version: 2
 updates:
   - package-ecosystem: gomod
+    directory: /modules/identity
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
     directory: /modules/commerce
     schedule:
       interval: weekly

@@ -1,9 +1,12 @@
 SHELL := /bin/bash
 GO ?= go
-MODULES := modules/platform modules/commerce apps/api
+MODULES := modules/platform modules/commerce modules/identity apps/api
 export GOTOOLCHAIN := go1.26.9
 
-.PHONY: run test vet fmt fmt-check tidy build check boundaries smoke test-deploy migrate seed smoke-persistence
+.PHONY: run test vet fmt fmt-check tidy build check boundaries smoke test-deploy migrate seed smoke-persistence init-env
+
+init-env:
+	@python3 scripts/init-env.py
 
 run:
 	@set -a; if [ -f .env ]; then source .env; fi; set +a; $(GO) run ./apps/api/cmd/api

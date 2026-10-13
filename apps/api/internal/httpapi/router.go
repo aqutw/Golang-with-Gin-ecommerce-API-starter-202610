@@ -2,13 +2,13 @@ package httpapi
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"example.com/ecommerce/commerce/application/catalog"
 	"example.com/ecommerce/commerce/application/checkout"
 	"example.com/ecommerce/commerce/domain/fault"
-	"example.com/ecommerce/platform/config"
+	identity "example.com/ecommerce/identity/application"
+	identitydomain "example.com/ecommerce/identity/domain"
 	"example.com/ecommerce/platform/httpx"
 	"github.com/gin-gonic/gin"
 	"io"
@@ -22,7 +22,7 @@ import (
 type Dependencies struct {
 	Catalog  catalog.Service
 	Checkout checkout.Service
-	Config   config.Config
+	Identity *identity.Service
 	Logger   *slog.Logger
 	Ready    func(context.Context) error
 	Storage  string
@@ -50,6 +50,7 @@ func New(d Dependencies) http.Handler {
 		c.JSON(200, gin.H{"status": "ready", "storage": d.Storage})
 	})
 	v1 := r.Group("/v1")
+	registerAuth(v1, d)
 	v1.GET("/products", func(c *gin.Context) {
 		products, err := d.Catalog.List(c.Request.Context())
 		if err != nil {
@@ -61,12 +62,23 @@ func New(d Dependencies) http.Handler {
 	private := v1.Group("")
 	private.Use(func(c *gin.Context) {
 		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
-		if !strings.HasPrefix(c.GetHeader("Authorization"), "Bearer ") || subtle.ConstantTimeCompare([]byte(token), []byte(d.Config.APIToken)) != 1 || d.Config.APIToken == "" {
+		if !strings.HasPrefix(c.GetHeader("Authorization"), "Bearer ") || token == "" {
 			fail(c, 401, "unauthorized", "valid bearer token required")
 			return
 		}
-		c.Set("subject", d.Config.Subject)
+		u, err := d.Identity.Authenticate(c.Request.Context(), token)
+		if err != nil {
+			respondError(c, d.Logger, err)
+			return
+		}
+		c.Set("subject", u.ID)
+		c.Set("user", u)
 		c.Next()
+	})
+	private.GET("/auth/me", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		u, _ := c.Get("user")
+		c.JSON(200, u)
 	})
 	private.POST("/quotes", func(c *gin.Context) {
 		var cmd checkout.Command
@@ -144,6 +156,12 @@ func fail(c *gin.Context, status int, code, message string) {
 }
 func respondError(c *gin.Context, logger *slog.Logger, err error) {
 	switch {
+	case errors.Is(err, identitydomain.Unauthorized):
+		fail(c, 401, "unauthorized", "invalid credentials or token")
+	case errors.Is(err, identitydomain.Invalid):
+		fail(c, 422, "invalid_auth_request", "valid email and password of 12+ characters required")
+	case errors.Is(err, identitydomain.EmailTaken):
+		fail(c, 409, "email_taken", "email already registered")
 	case errors.Is(err, fault.Invalid):
 		fail(c, 422, "invalid_request", err.Error())
 	case errors.Is(err, fault.NotFound):

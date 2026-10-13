@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify the actual API preserves checkout state across process restart."""
+import base64
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,7 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-TOKEN = "persistence-smoke-token-123456"
+PASSWORD = "persistence-smoke-password-123456"
 
 
 def main():
@@ -22,10 +23,12 @@ def main():
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
-        env = dict(os.environ, APP_ENV="development", API_TOKEN=TOKEN,
-                   API_SUBJECT="smoke-customer", HTTP_ADDR=f"127.0.0.1:{port}",
+        env = dict(os.environ, APP_ENV="development", JWT_SECRET=base64.b64encode(os.urandom(32)).decode(),
+                   HTTP_ADDR=f"127.0.0.1:{port}",
                    DB_PATH=str(database))
         order_id = None
+        access = None
+        refresh = None
         for attempt in range(2):
             with (Path(directory) / f"api-{attempt}.log").open("w") as log:
                 process = subprocess.Popen([str(ROOT / "bin/api")], env=env,
@@ -38,19 +41,37 @@ def main():
                             with urllib.request.urlopen(base + "/readyz", timeout=1) as response:
                                 assert json.load(response)["storage"] == "sqlite"
                             break
-                        except (urllib.error.URLError, TimeoutError):
+                        except (urllib.error.URLError, TimeoutError, ConnectionError):
                             time.sleep(0.1)
                     else:
                         raise RuntimeError("API readiness timed out")
+                    def post_auth(action, data):
+                        req = urllib.request.Request(base + "/v1/auth/" + action,
+                            data=json.dumps(data).encode(), headers={"Content-Type": "application/json"})
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            return json.load(resp)
+                    credentials = {"email": "smoke@example.test", "password": PASSWORD}
+                    if attempt == 0:
+                        post_auth("register", credentials)
+                        pair = post_auth("login", credentials)
+                    else:
+                        # Access validation and refresh data both survive process restart.
+                        req = urllib.request.Request(base + "/v1/auth/me", headers={"Authorization": "Bearer " + access})
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            assert json.load(resp)["email"] == "smoke@example.test"
+                        pair = post_auth("refresh", {"refresh_token": refresh})
+                        assert pair["refresh_token"] != refresh
+                    access = pair["access_token"]
+                    refresh = pair["refresh_token"]
                     for coupon, quantity, expected in (("WELCOME10", 1, 750), ("SAVE500", 1, 500), ("BIGSALE20", 3, 3000)):
                         quote_request = urllib.request.Request(base + "/v1/quotes",
                             data=json.dumps({"items": [{"product_id": "keyboard", "quantity": quantity}], "coupon": coupon}).encode(),
-                            headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
+                            headers={"Authorization": "Bearer " + access, "Content-Type": "application/json"})
                         with urllib.request.urlopen(quote_request, timeout=5) as response:
                             assert json.load(response)["discount_minor"] == expected
                     body = json.dumps({"items": [{"product_id": "keyboard", "quantity": 1}], "coupon": "WELCOME10"}).encode()
                     request = urllib.request.Request(base + "/v1/checkouts", data=body,
-                        headers={"Authorization": "Bearer " + TOKEN,
+                        headers={"Authorization": "Bearer " + access,
                                  "Content-Type": "application/json",
                                  "Idempotency-Key": "persistence-request-001"})
                     with urllib.request.urlopen(request, timeout=5) as response:
@@ -63,6 +84,17 @@ def main():
                         order_id = result["order"]["id"]
                     else:
                         assert result["order"]["id"] == order_id
+                    if attempt == 1:
+                        req = urllib.request.Request(base + "/v1/auth/logout",
+                            data=json.dumps({"refresh_token": refresh}).encode(), headers={"Content-Type": "application/json"})
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            assert resp.status == 204
+                        req = urllib.request.Request(base + "/v1/auth/me", headers={"Authorization": "Bearer " + access})
+                        try:
+                            urllib.request.urlopen(req, timeout=5)
+                            raise AssertionError("logout left access JWT valid")
+                        except urllib.error.HTTPError as error:
+                            assert error.code == 401
                 finally:
                     if process.poll() is None:
                         process.terminate()
@@ -74,9 +106,13 @@ def main():
             assert process.returncode == 0, f"API stopped with {process.returncode}"
         with sqlite3.connect(database) as db:
             assert db.execute("SELECT available FROM inventory WHERE product_id = 'keyboard'").fetchone()[0] == 9
+            stored_hash = db.execute("SELECT password_hash FROM auth_users").fetchone()[0]
+            assert stored_hash.startswith("$argon2id$") and PASSWORD not in stored_hash
+            assert db.execute("SELECT count(*) FROM auth_refresh_tokens").fetchone()[0] == 2
+            assert db.execute("SELECT count(*) FROM auth_sessions WHERE revoked_at IS NOT NULL").fetchone()[0] == 1
             for table in ("orders", "checkout_receipts", "outbox"):
                 assert db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 1
-        print("SQLite persistence smoke passed: discount strategies, order snapshots, and idempotency survive restart")
+        print("JWT / SQLite smoke passed: login, refresh rotation, logout revocation, discounts and order replay survive restart")
 
 
 if __name__ == "__main__":

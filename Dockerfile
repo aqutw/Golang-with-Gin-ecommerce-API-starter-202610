@@ -3,6 +3,7 @@ WORKDIR /src
 ENV GOWORK=off CGO_ENABLED=0
 COPY modules/commerce/go.mod modules/commerce/go.sum modules/commerce/
 COPY modules/platform/go.mod modules/platform/go.mod
+COPY modules/identity/go.mod modules/identity/go.sum modules/identity/
 COPY apps/api/go.mod apps/api/go.sum apps/api/
 WORKDIR /src/apps/api
 RUN go mod download

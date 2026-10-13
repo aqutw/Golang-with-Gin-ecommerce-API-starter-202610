@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	example.com/ecommerce/commerce v0.0.0
+	example.com/ecommerce/identity v0.0.0
 	example.com/ecommerce/platform v0.0.0
 	github.com/gin-gonic/gin v1.12.0
 )
@@ -21,6 +22,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
@@ -51,3 +53,5 @@ require (
 replace example.com/ecommerce/commerce => ../../modules/commerce
 
 replace example.com/ecommerce/platform => ../../modules/platform
+
+replace example.com/ecommerce/identity => ../../modules/identity

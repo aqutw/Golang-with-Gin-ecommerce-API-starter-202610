@@ -32,6 +32,7 @@ jobs:
           cache-dependency-path: |
             apps/api/go.sum
             modules/commerce/go.sum
+            modules/identity/go.sum
       - name: Install boundary checker dependency
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Format, architecture, vet, race tests, build
@@ -47,9 +48,11 @@ jobs:
         run: make test-deploy
       - name: HTTP smoke
         env:
-          API_TOKEN: ci-smoke-token-123456
+          JWT_SECRET: Y2ktc21va2Uta2V5LTMyLWJ5dGVzLW9ubHktbm90LXByb2Q=
           HTTP_ADDR: 127.0.0.1:8080
           DB_PATH: /tmp/ecommerce-ci.db
+          AUTH_EMAIL: ci-smoke@example.test
+          AUTH_PASSWORD: ci-smoke-password-123456
         run: |
           bin/api > /tmp/api.log 2>&1 &
           api_pid=$!
