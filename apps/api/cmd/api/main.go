@@ -7,6 +7,7 @@ import (
 	"example.com/ecommerce/commerce/adapters/sqlite"
 	catalogapp "example.com/ecommerce/commerce/application/catalog"
 	"example.com/ecommerce/commerce/application/checkout"
+	"example.com/ecommerce/commerce/domain/discount"
 	"example.com/ecommerce/commerce/domain/pricing"
 	"example.com/ecommerce/platform/config"
 	"example.com/ecommerce/platform/httpx"
@@ -52,7 +53,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("seed SQLite: %w", err)
 	}
 	handler := httpapi.New(httpapi.Dependencies{Catalog: catalogapp.Service{Store: store},
-		Checkout: checkout.Service{Store: store, Pricing: pricing.Policy{}, NewID: httpx.NewID, Now: time.Now}, Config: cfg, Logger: logger, Ready: store.Ping, Storage: "sqlite"})
+		Checkout: checkout.Service{Store: store, Pricing: pricing.Policy{Discounts: discount.NewEngine(nil)}, NewID: httpx.NewID, Now: time.Now}, Config: cfg, Logger: logger, Ready: store.Ping, Storage: "sqlite"})
 	server := &http.Server{Addr: cfg.Address, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

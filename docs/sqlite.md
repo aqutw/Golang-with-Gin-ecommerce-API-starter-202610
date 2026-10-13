@@ -21,7 +21,7 @@ go run ./apps/api/cmd/db -db ./data/custom.db seed
 
 seed SQL 位於 `modules/commerce/adapters/sqlite/seed.sql`，以 `ON CONFLICT DO NOTHING` 只補缺少 rows。重跑 migration / seed 不會重新補滿庫存，不會更新商品名稱、價格或 active 狀態，也不會刪除訂單。要補庫存或改價應另外加入明確的管理 use case；不要把 seed 當成補貨機制。
 
-schema 位於 `migrations/001_initial.sql`，含 products、inventory、orders、order_lines、checkout_receipts、outbox；`schema_migrations` 追蹤已套用版本。Migration 與 seed 各自使用 atomic SQL transaction。已套用的 migration 不要修改，新增下一個 `NNN_description.sql`。目前是 demo 自動 migration，正式部署需要獨立 migration policy 與備份策略。
+初始 schema 位於 `migrations/001_initial.sql`，含 products、inventory、orders、order_lines、checkout_receipts、outbox；`002_discount_strategies.sql` 新增 discount_rules 與訂單優惠 snapshot（詳見 [Discount strategies](discount-strategies.md)）；`schema_migrations` 追蹤已套用版本。Migration 與 seed 各自使用 atomic SQL transaction。已套用的 migration 不要修改，新增下一個 `NNN_description.sql`。目前是 demo 自動 migration，正式部署需要獨立 migration policy 與備份策略。
 
 預設 adapter 使用純 Go [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite@v1.60.1)，維持 `CGO_ENABLED=0`；SQL driver 僅由 commerce adapter 引用。每條 connection 都設定 foreign keys、WAL、busy timeout 5000ms、synchronous FULL。`_txlock=immediate` 讓交易在讀取 receipt 或扣庫存前取得 SQLite writer lock，配合條件式 UPDATE 及 receipt UNIQUE key 防止兩個 Store 的併發超賣／重複建單。[SQLite transaction 文件](https://www.sqlite.org/lang_transaction.html)
 

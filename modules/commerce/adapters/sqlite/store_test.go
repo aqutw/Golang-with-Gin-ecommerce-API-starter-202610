@@ -70,7 +70,7 @@ func TestSeedAndRestartPreserveProductsOrdersAndReceipts(t *testing.T) {
 	if err := s.Seed(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if scalar(t, s, "SELECT count(*) FROM products") != 2 || scalar(t, s, "SELECT count(*) FROM schema_migrations") != 1 {
+	if scalar(t, s, "SELECT count(*) FROM products") != 2 || scalar(t, s, "SELECT count(*) FROM schema_migrations") != 2 {
 		t.Fatal("seed or migrations duplicated rows")
 	}
 	if scalar(t, s, "SELECT price_minor FROM products WHERE id = 'keyboard'") != 9900 || scalar(t, s, "SELECT available FROM inventory WHERE product_id = 'keyboard'") != 9 {

@@ -4,6 +4,7 @@ package memory
 import (
 	"context"
 	"example.com/ecommerce/commerce/domain/catalog"
+	"example.com/ecommerce/commerce/domain/discount"
 	"example.com/ecommerce/commerce/domain/fault"
 	"example.com/ecommerce/commerce/domain/inventory"
 	"example.com/ecommerce/commerce/domain/order"
@@ -15,11 +16,12 @@ import (
 
 type receiptKey struct{ customer, key string }
 type state struct {
-	products map[string]catalog.Product
-	stock    map[string]int
-	orders   map[string]order.Order
-	receipts map[receiptKey]ports.Receipt
-	events   []order.PlacedEvent
+	products  map[string]catalog.Product
+	discounts map[string]discount.Rule
+	stock     map[string]int
+	orders    map[string]order.Order
+	receipts  map[receiptKey]ports.Receipt
+	events    []order.PlacedEvent
 }
 type Store struct {
 	mu   sync.RWMutex
@@ -28,13 +30,16 @@ type Store struct {
 
 var _ ports.Store = (*Store)(nil)
 
-func New(products []catalog.Product, stock map[string]int) *Store {
-	d := &state{products: map[string]catalog.Product{}, stock: map[string]int{}, orders: map[string]order.Order{}, receipts: map[receiptKey]ports.Receipt{}}
+func New(products []catalog.Product, stock map[string]int, rules ...discount.Rule) *Store {
+	d := &state{products: map[string]catalog.Product{}, discounts: map[string]discount.Rule{}, stock: map[string]int{}, orders: map[string]order.Order{}, receipts: map[receiptKey]ports.Receipt{}}
 	for _, p := range products {
 		d.products[p.ID] = p
 	}
 	for id, amount := range stock {
 		d.stock[id] = amount
+	}
+	for _, rule := range rules {
+		d.discounts[rule.Code] = rule
 	}
 	return &Store{data: d}
 }
@@ -42,6 +47,9 @@ func New(products []catalog.Product, stock map[string]int) *Store {
 func (d *state) clone() *state {
 	products, _ := d.Products() // The memory implementation cannot fail.
 	c := New(products, d.stock).data
+	for code, rule := range d.discounts {
+		c.discounts[code] = rule
+	}
 	for id, o := range d.orders {
 		c.orders[id] = o.Copy()
 	}
@@ -92,6 +100,13 @@ func (d *state) Product(id string) (catalog.Product, error) {
 		return catalog.Product{}, fault.NotFound
 	}
 	return p, nil
+}
+func (d *state) Discount(code string) (discount.Rule, error) {
+	rule, ok := d.discounts[code]
+	if !ok {
+		return discount.Rule{}, fault.NotFound
+	}
+	return rule, nil
 }
 func (d *state) Order(id string) (order.Order, error) {
 	o, ok := d.orders[id]

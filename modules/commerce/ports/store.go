@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"example.com/ecommerce/commerce/domain/catalog"
+	"example.com/ecommerce/commerce/domain/discount"
 	"example.com/ecommerce/commerce/domain/order"
 )
 
@@ -14,6 +15,7 @@ type Receipt struct {
 type Reader interface {
 	Products() ([]catalog.Product, error)
 	Product(id string) (catalog.Product, error)
+	Discount(code string) (discount.Rule, error)
 	Order(id string) (order.Order, error)
 	Receipt(customer, key string) (Receipt, bool, error)
 }

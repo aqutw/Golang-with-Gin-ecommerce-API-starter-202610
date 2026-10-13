@@ -42,7 +42,13 @@ def main():
                             time.sleep(0.1)
                     else:
                         raise RuntimeError("API readiness timed out")
-                    body = json.dumps({"items": [{"product_id": "keyboard", "quantity": 1}]}).encode()
+                    for coupon, quantity, expected in (("WELCOME10", 1, 750), ("SAVE500", 1, 500), ("BIGSALE20", 3, 3000)):
+                        quote_request = urllib.request.Request(base + "/v1/quotes",
+                            data=json.dumps({"items": [{"product_id": "keyboard", "quantity": quantity}], "coupon": coupon}).encode(),
+                            headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
+                        with urllib.request.urlopen(quote_request, timeout=5) as response:
+                            assert json.load(response)["discount_minor"] == expected
+                    body = json.dumps({"items": [{"product_id": "keyboard", "quantity": 1}], "coupon": "WELCOME10"}).encode()
                     request = urllib.request.Request(base + "/v1/checkouts", data=body,
                         headers={"Authorization": "Bearer " + TOKEN,
                                  "Content-Type": "application/json",
@@ -51,6 +57,8 @@ def main():
                         assert response.status == (201 if attempt == 0 else 200)
                         result = json.load(response)
                     assert result["replayed"] == (attempt == 1)
+                    assert result["order"]["discount_minor"] == 750
+                    assert result["order"]["discount"]["rate_bps"] == 1000
                     if attempt == 0:
                         order_id = result["order"]["id"]
                     else:
@@ -68,7 +76,7 @@ def main():
             assert db.execute("SELECT available FROM inventory WHERE product_id = 'keyboard'").fetchone()[0] == 9
             for table in ("orders", "checkout_receipts", "outbox"):
                 assert db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 1
-        print("SQLite persistence smoke passed: restart replays the same order without deducting stock twice")
+        print("SQLite persistence smoke passed: discount strategies, order snapshots, and idempotency survive restart")
 
 
 if __name__ == "__main__":

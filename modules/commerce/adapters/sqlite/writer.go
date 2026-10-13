@@ -33,8 +33,16 @@ func (w *writer) DeductStock(id string, quantity int) error {
 }
 
 func (w *writer) SaveOrder(o order.Order) error {
-	_, err := w.tx.ExecContext(w.ctx, `INSERT INTO orders (id, customer_id, currency, subtotal_minor, discount_minor, shipping_minor, total_minor, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.ID, o.CustomerID, o.Currency, o.SubtotalMinor, o.DiscountMinor, o.ShippingMinor, o.TotalMinor, o.Status, o.CreatedAt.UTC().Format(time.RFC3339Nano))
+	var snapshot string
+	if o.Discount != nil {
+		encoded, err := json.Marshal(o.Discount)
+		if err != nil {
+			return err
+		}
+		snapshot = string(encoded)
+	}
+	_, err := w.tx.ExecContext(w.ctx, `INSERT INTO orders (id, customer_id, currency, subtotal_minor, discount_minor, shipping_minor, total_minor, status, created_at, discount_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.ID, o.CustomerID, o.Currency, o.SubtotalMinor, o.DiscountMinor, o.ShippingMinor, o.TotalMinor, o.Status, o.CreatedAt.UTC().Format(time.RFC3339Nano), snapshot)
 	if err != nil {
 		return err
 	}

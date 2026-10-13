@@ -4,7 +4,9 @@
 
 | 需求／logic | 放置位置 | 原因 |
 |---|---|---|
-| 10% 優惠、免運門檻、最小貨幣單位 | `commerce/domain/pricing` | 改規則會改變電商的銷售結果 |
+| 百分比／固定折扣的演算法 | `commerce/domain/discount` | Strategy 定義電商優惠計算規則 |
+| 優惠比例、金額、門檻、cap、active | SQLite `discount_rules` | 設定數值可更改，不需要重新編譯 |
+| 折扣與運費順序、最小貨幣單位 | `commerce/domain/pricing` | 組合各種價格規則 |
 | 商品 active、庫存足不足、訂單明細與價格快照 | `commerce/domain/*` | 都是交易領域概念 |
 | 同一 customer 下的結帳冪等、交易內扣庫存與建訂單 | `commerce/application/checkout` | 是 use case 的協作規則 |
 | Store、交易 callback、跨品項原子寫入契約 | `commerce/ports` | 契約包含訂單與庫存語意，屬業務 port |
@@ -41,9 +43,9 @@ flowchart TB
 
 1. 驗證 customer、key、購物內容；合併重複品項、排序、正規化 coupon，產生 fingerprint。
 2. `Store.Update` 開始 transaction；以 `(customer, key)` 讀取 receipt。有相同 fingerprint 就返回原訂單，不同 fingerprint 回報 conflict。
-3. 從 transaction 中讀取商品價格，拒絕 inactive / 非 USD 商品；domain pricing 計算優惠與運費。
+3. 從 transaction 中讀取商品價格，拒絕 inactive / 非 USD 商品；讀取同 transaction 的 discount rule，domain discount Engine 分派 Strategy，再由 pricing 組合優惠與運費。
 4. domain inventory 檢查數量；adapter 原子扣庫存。
-5. 建立 `pending_payment` 訂單，保存商品名稱、單價與 totals 的 snapshot，之後商品改價不影響原訂單。
+5. 建立 `pending_payment` 訂單，保存商品名稱、單價、discount rule 與 totals 的 snapshot，之後商品改價不影響原訂單。
 6. 保存 order、receipt 與 `order.placed.v1` outbox event。
 7. 成功才 commit；錯誤或 commit 前 context cancellation 都回滾整筆交易。
 

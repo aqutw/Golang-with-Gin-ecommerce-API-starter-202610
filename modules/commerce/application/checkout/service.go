@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"example.com/ecommerce/commerce/domain/discount"
 	"example.com/ecommerce/commerce/domain/fault"
 	"example.com/ecommerce/commerce/domain/order"
 	"example.com/ecommerce/commerce/domain/pricing"
@@ -54,6 +56,9 @@ func normalize(cmd Command) (Command, error) {
 	}
 	sort.Slice(cmd.Items, func(i, j int) bool { return cmd.Items[i].ProductID < cmd.Items[j].ProductID })
 	cmd.Coupon = strings.ToUpper(strings.TrimSpace(cmd.Coupon))
+	if len(cmd.Coupon) > 64 {
+		return Command{}, fault.Invalid
+	}
 	return cmd, nil
 }
 
@@ -69,7 +74,18 @@ func (s Service) quote(r ports.Reader, cmd Command) ([]order.Line, pricing.Total
 		}
 		lines = append(lines, order.Line{ProductID: p.ID, Name: p.Name, Quantity: item.Quantity, UnitPriceMinor: p.PriceMinor})
 	}
-	totals, err := s.Pricing.Calculate(lines, "USD", cmd.Coupon)
+	var rule *discount.Rule
+	if cmd.Coupon != "" {
+		stored, err := r.Discount(cmd.Coupon)
+		if errors.Is(err, fault.NotFound) {
+			return nil, pricing.Totals{}, fault.Invalid
+		}
+		if err != nil {
+			return nil, pricing.Totals{}, err
+		}
+		rule = &stored
+	}
+	totals, err := s.Pricing.Calculate(lines, "USD", rule)
 	return lines, totals, err
 }
 
@@ -125,7 +141,7 @@ func (s Service) Place(ctx context.Context, customer, key string, cmd Command) (
 			}
 		}
 		o := order.Order{ID: s.NewID(), CustomerID: customer, Lines: lines, Currency: totals.Currency,
-			SubtotalMinor: totals.SubtotalMinor, DiscountMinor: totals.DiscountMinor, ShippingMinor: totals.ShippingMinor,
+			SubtotalMinor: totals.SubtotalMinor, DiscountMinor: totals.DiscountMinor, Discount: totals.Discount, ShippingMinor: totals.ShippingMinor,
 			TotalMinor: totals.TotalMinor, Status: "pending_payment", CreatedAt: s.Now().UTC()}
 		if err := tx.SaveOrder(o); err != nil {
 			return err

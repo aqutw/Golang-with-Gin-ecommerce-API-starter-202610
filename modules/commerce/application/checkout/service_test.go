@@ -6,6 +6,7 @@ import (
 	"example.com/ecommerce/commerce/adapters/memory"
 	"example.com/ecommerce/commerce/application/checkout"
 	"example.com/ecommerce/commerce/domain/catalog"
+	"example.com/ecommerce/commerce/domain/discount"
 	"example.com/ecommerce/commerce/domain/fault"
 	"example.com/ecommerce/commerce/domain/order"
 	"example.com/ecommerce/commerce/ports"
@@ -20,7 +21,7 @@ func fixture() (checkout.Service, *memory.Store) {
 	store := memory.New([]catalog.Product{
 		{ID: "a", Name: "A", PriceMinor: 7500, Currency: "USD", Active: true},
 		{ID: "b", Name: "B", PriceMinor: 2500, Currency: "USD", Active: true},
-	}, map[string]int{"a": 1, "b": 0})
+	}, map[string]int{"a": 1, "b": 0}, discount.Rule{Code: "WELCOME10", Strategy: discount.Percentage, RateBPS: 1000, Currency: "USD", Active: true})
 	var counter atomic.Int64
 	return checkout.Service{Store: store, NewID: func() string { return fmt.Sprint(counter.Add(1)) }, Now: func() time.Time { return time.Unix(100, 0) }}, store
 }
@@ -46,8 +47,9 @@ func TestIdempotencyAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.Order.Lines[0].Name = "mutated"
+	first.Order.Discount.RateBPS = 9999
 	saved, err := s.GetOrder(ctx, "alice", first.Order.ID)
-	if err != nil || saved.Lines[0].Name != "A" {
+	if err != nil || saved.Lines[0].Name != "A" || saved.Discount.RateBPS != 1000 {
 		t.Fatalf("snapshot mutated: %+v %v", saved, err)
 	}
 	stock, orders, events := store.Snapshot()

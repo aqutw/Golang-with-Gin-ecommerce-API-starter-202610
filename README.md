@@ -51,7 +51,7 @@ curl -i http://127.0.0.1:8080/v1/checkouts \
   -d '{"items":[{"product_id":"keyboard","quantity":1},{"product_id":"mouse","quantity":1}],"coupon":"WELCOME10"}'
 ```
 
-subtotal = 10000、discount = 1000、shipping = 500、total = 9500（USD cents）。運費以折扣後金額判斷：滿 USD 100 免運，否則 USD 5。`WELCOME10` 是示範用固定 10% 優惠，整數無條件捨去，未限制首次購買。
+subtotal = 10000、discount = 1000、shipping = 500、total = 9500（USD cents）。運費以折扣後金額判斷：滿 USD 100 免運，否則 USD 5。`WELCOME10` 的預設折扣是 10%，比例由 SQLite `discount_rules.rate_bps=1000` 提供，整數無條件捨去，未限制首次購買。另有固定金額與滿額／上限策略；詳見 [Discount strategies](docs/discount-strategies.md)。
 
 以相同 key 重送相同購物內容，取得原訂單、HTTP 200 及 `replayed: true`；新建訂單為 HTTP 201。相同 key 改動內容得到 HTTP 409。商品排列、重複品項合併、coupon 大小寫及前後空白會先正規化。key 以已驗證的 customer scope 隔離，長度 8–128，不允許空白。
 
@@ -83,7 +83,8 @@ apps/api/
 modules/commerce/
   domain/catalog/                 # 商品資料／啟用狀態
   domain/inventory/               # 庫存不可負數的純規則
-  domain/pricing/                 # 優惠、運費、overflow 防護
+  domain/discount/                # percentage / fixed amount strategies
+  domain/pricing/                 # 折扣與運費組合、overflow 防護
   domain/order/                   # immutable price snapshots 與事件
   domain/fault/                   # 業務錯誤，沒有 HTTP status
   application/catalog/           # 商品查詢 use case
@@ -116,7 +117,7 @@ flowchart LR
 
 預設使用 SQLite，路徑為 `./data/ecommerce.db`，可由 `DB_PATH` 改寫。API 啟動會自動執行 embedded migrations 與商品 seed；也可先執行 `make seed`，不需要 API_TOKEN 或啟動 HTTP。Seed 商品為 keyboard（7500 USD cents、庫存 10）與 mouse（2500 USD cents、庫存 20）。重跑只補缺少的 rows，不覆蓋修改過的商品或重設庫存。資料檔及 WAL / SHM 不進 Git；SQL schema / seed 與 module lockfiles 才是可版本管理的來源。
 
-商品、庫存、訂單、checkout receipts 與 outbox 都存入 SQLite，重啟後保留。交易使用 WAL、foreign keys、busy timeout 與 BEGIN IMMEDIATE；每個 Store 的 pool 暫限一條連線，寫入依 SQLite writer lock 序列化，適合單機起手式。Memory adapter 保留作測試用途。SQLite 與 seed 的細節：[SQLite 說明](docs/sqlite.md)。
+商品、庫存、discount rules、訂單、checkout receipts 與 outbox 都存入 SQLite，重啟後保留。交易使用 WAL、foreign keys、busy timeout 與 BEGIN IMMEDIATE；每個 Store 的 pool 暫限一條連線，寫入依 SQLite writer lock 序列化，適合單機起手式。Memory adapter 保留作測試用途。SQLite 與 seed 的細節：[SQLite 說明](docs/sqlite.md)。
 
 尚無事件發送 worker；訂單停在 `pending_payment`，庫存不會自動到期釋放。`API_TOKEN` 仍對應固定 `API_SUBJECT`，不是多使用者登入系統，登入方案仍待選擇。接真實商務時，再補 identity、payment、reservation expiry、tax、coupon eligibility 及 outbox worker；`APP_ENV=production` 仍拒絕 demo identity / 自動 demo seed 的組裝。
 

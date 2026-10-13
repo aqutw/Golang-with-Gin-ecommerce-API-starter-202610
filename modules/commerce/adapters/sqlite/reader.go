@@ -3,10 +3,12 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
 	"example.com/ecommerce/commerce/domain/catalog"
+	"example.com/ecommerce/commerce/domain/discount"
 	"example.com/ecommerce/commerce/domain/fault"
 	"example.com/ecommerce/commerce/domain/order"
 	"example.com/ecommerce/commerce/ports"
@@ -44,16 +46,34 @@ func (r *reader) Product(id string) (catalog.Product, error) {
 	return p, err
 }
 
+func (r *reader) Discount(code string) (discount.Rule, error) {
+	var rule discount.Rule
+	err := r.tx.QueryRowContext(r.ctx, `SELECT code, strategy, rate_bps, amount_minor, min_subtotal_minor, max_discount_minor, currency, active FROM discount_rules WHERE code = ?`, code).
+		Scan(&rule.Code, &rule.Strategy, &rule.RateBPS, &rule.AmountMinor, &rule.MinSubtotalMinor, &rule.MaxDiscountMinor, &rule.Currency, &rule.Active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return discount.Rule{}, fault.NotFound
+	}
+	return rule, err
+}
+
 func (r *reader) Order(id string) (order.Order, error) {
 	var o order.Order
 	var createdAt string
-	err := r.tx.QueryRowContext(r.ctx, `SELECT id, customer_id, currency, subtotal_minor, discount_minor, shipping_minor, total_minor, status, created_at FROM orders WHERE id = ?`, id).
-		Scan(&o.ID, &o.CustomerID, &o.Currency, &o.SubtotalMinor, &o.DiscountMinor, &o.ShippingMinor, &o.TotalMinor, &o.Status, &createdAt)
+	var snapshot string
+	err := r.tx.QueryRowContext(r.ctx, `SELECT id, customer_id, currency, subtotal_minor, discount_minor, shipping_minor, total_minor, status, created_at, discount_snapshot FROM orders WHERE id = ?`, id).
+		Scan(&o.ID, &o.CustomerID, &o.Currency, &o.SubtotalMinor, &o.DiscountMinor, &o.ShippingMinor, &o.TotalMinor, &o.Status, &createdAt, &snapshot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return order.Order{}, fault.NotFound
 	}
 	if err != nil {
 		return order.Order{}, err
+	}
+	if snapshot != "" {
+		var rule discount.Rule
+		if err := json.Unmarshal([]byte(snapshot), &rule); err != nil {
+			return order.Order{}, err
+		}
+		o.Discount = &rule
 	}
 	o.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
