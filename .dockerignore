@@ -1,0 +1,11 @@
+.git
+.github
+.env
+bin
+coverage
+docs
+**/*_test.go
+data
+**/*.db
+**/*.db-wal
+**/*.db-shm

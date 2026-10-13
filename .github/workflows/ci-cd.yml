@@ -1,0 +1,131 @@
+name: CI and demo delivery
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_demo:
+        description: Deploy the tested commit to the configured demo host
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            apps/api/go.sum
+            modules/commerce/go.sum
+      - name: Install boundary checker dependency
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Format, architecture, vet, race tests, build
+        run: make check
+      - name: Verify dependency lockfiles
+        run: |
+          make tidy
+          git diff --exit-code -- '**/go.mod' '**/go.sum'
+          test -z "$(git ls-files --others --exclude-standard -- '**/go.sum')"
+      - name: Shell syntax
+        run: bash -n scripts/*.sh
+      - name: Deployment failure paths (offline Docker stub)
+        run: make test-deploy
+      - name: HTTP smoke
+        env:
+          API_TOKEN: ci-smoke-token-123456
+          HTTP_ADDR: 127.0.0.1:8080
+          DB_PATH: /tmp/ecommerce-ci.db
+        run: |
+          bin/api > /tmp/api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/readyz; then break; fi
+            echo "Waiting for API ($attempt/30)"
+            sleep 1
+          done
+          make smoke
+      - name: API restart persistence smoke
+        run: make smoke-persistence
+      - name: Container build
+        run: docker build -t ecommerce-api:ci .
+
+  publish:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Authenticate GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Build and publish immutable image
+        id: push
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}/api"
+          docker build --label "org.opencontainers.image.revision=$COMMIT" -t "$image:$COMMIT" .
+          docker push "$image:$COMMIT"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$COMMIT")
+          echo "image=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published $digest" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-demo:
+    needs: publish
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: demo
+    concurrency:
+      group: demo-deployment
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Deploy over verified SSH connection
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-zA-Z0-9_-]+$ ]]
+          [[ "$IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/deploy_key" "$HOME/.ssh/known_hosts"
+          trap 'rm -f "$HOME/.ssh/deploy_key"' EXIT
+          ssh -i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" "bash -s -- '$IMAGE'" < scripts/deploy.sh

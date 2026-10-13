@@ -1,0 +1,9 @@
+.env
+bin/
+coverage/
+*.log
+go.work.sum
+data/
+*.db
+*.db-wal
+*.db-shm
