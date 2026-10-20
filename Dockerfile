@@ -1,4 +1,4 @@
-FROM golang:1.27.1-alpine AS build
+FROM golang:1.27.2-alpine AS build
 WORKDIR /src
 ENV GOWORK=off CGO_ENABLED=0
 COPY modules/commerce/go.mod modules/commerce/go.sum modules/commerce/
